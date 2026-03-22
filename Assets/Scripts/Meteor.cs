@@ -1,92 +1,157 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Collider2D))]
+[RequireComponent(typeof(Collider2D), typeof(Rigidbody2D))]
 public class Meteor : MonoBehaviour
 {
-    [SerializeField, Min(0.1f)] private float fallSpeed = 5f;
-    [SerializeField] private float spinSpeed = 180f;
-    [SerializeField] private float despawnY = -7.5f;
-    [SerializeField, Min(0)] private int avoidedBonusScore = 1;
+    [Header("Impact Cleanup")]
+    [SerializeField, Min(0.05f)] private float postImpactLifetime = 0.15f;
+    [SerializeField, Min(0.5f)] private float maxLifetime = 12f;
 
-    private bool resolved;
+    private Transform planetCenter;
+    private MeteorSpawner owner;
+    private Collider2D cachedCollider;
+    private Rigidbody2D cachedRigidbody;
+    private SpriteRenderer cachedSpriteRenderer;
+    private TrailRenderer cachedTrailRenderer;
+    private Vector2 moveDirection;
+    private float moveSpeed;
+    private int planetHitBonus;
+    private float lifeTimer;
+    private bool isResolved;
+
+    private void Awake()
+    {
+        cachedCollider = GetComponent<Collider2D>();
+        cachedRigidbody = GetComponent<Rigidbody2D>();
+        cachedSpriteRenderer = GetComponent<SpriteRenderer>();
+        cachedTrailRenderer = GetComponent<TrailRenderer>();
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.isTrigger = true;
+        }
+
+        if (cachedRigidbody != null)
+        {
+            cachedRigidbody.bodyType = RigidbodyType2D.Kinematic;
+            cachedRigidbody.gravityScale = 0f;
+        }
+    }
 
     private void Update()
     {
-        if (resolved)
+        if (isResolved)
         {
             return;
         }
 
-        float speedMultiplier = 1f;
-        if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
+        lifeTimer += Time.deltaTime;
+        if (lifeTimer >= maxLifetime)
         {
-            speedMultiplier = 0.5f;
+            Destroy(gameObject);
+            return;
         }
 
-        transform.position += Vector3.down * fallSpeed * speedMultiplier * Time.deltaTime;
-        transform.Rotate(0f, 0f, spinSpeed * Time.deltaTime);
-
-        if (transform.position.y < despawnY)
+        if (moveDirection.sqrMagnitude <= 0.0001f)
         {
-            ResolveAsAvoided();
+            return;
+        }
+
+        transform.position += (Vector3)(moveDirection * moveSpeed * Time.deltaTime);
+
+        if (moveDirection.sqrMagnitude > 0.0001f)
+        {
+            transform.up = moveDirection;
         }
     }
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        HandleCollision(other);
-    }
-
-    private void OnCollisionEnter2D(Collision2D collision)
-    {
-        HandleCollision(collision.collider);
-    }
-
-    private void HandleCollision(Collider2D other)
-    {
-        if (resolved || other == null)
+        if (isResolved || other == null)
         {
             return;
         }
 
-        if (other.GetComponent<Meteor>() != null || other.GetComponentInParent<Meteor>() != null)
+        if (other.GetComponent<PlayerController>() != null || other.GetComponentInParent<PlayerController>() != null)
         {
+            ResolvePlayerHit();
             return;
         }
 
-        if (other.GetComponent<PlayerOrbitalController>() != null || other.GetComponentInParent<PlayerOrbitalController>() != null)
+        if (planetCenter != null && (other.transform == planetCenter || other.transform.IsChildOf(planetCenter)))
         {
-            ResolveAsPlayerHit();
-            return;
-        }
-
-        if (other.GetComponent<PlanetSurface>() != null || other.GetComponentInParent<PlanetSurface>() != null)
-        {
-            ResolveAsAvoided();
+            ResolvePlanetHit();
         }
     }
 
-    private void ResolveAsAvoided()
+    private void OnDestroy()
     {
-        if (resolved)
-        {
-            return;
-        }
-
-        resolved = true;
-        GameManager.Instance?.RegisterMeteorAvoided(avoidedBonusScore);
-        Destroy(gameObject);
+        owner?.UnregisterMeteor(this);
     }
 
-    private void ResolveAsPlayerHit()
+    public void Initialize(Transform targetPlanetCenter, Vector2 direction, float speed, int bonusScore, MeteorSpawner meteorSpawner)
     {
-        if (resolved)
+        planetCenter = targetPlanetCenter;
+        moveDirection = direction.normalized;
+        moveSpeed = speed;
+        planetHitBonus = bonusScore;
+        owner = meteorSpawner;
+        lifeTimer = 0f;
+    }
+
+    private void ResolvePlayerHit()
+    {
+        if (isResolved)
         {
             return;
         }
 
-        resolved = true;
-        GameManager.Instance?.OnPlayerHit();
-        Destroy(gameObject);
+        isResolved = true;
+        GameManager.Instance?.HandlePlayerHit();
+        BeginImpactCleanup();
+    }
+
+    private void ResolvePlanetHit()
+    {
+        if (isResolved)
+        {
+            return;
+        }
+
+        isResolved = true;
+        GameManager.Instance?.RegisterMeteorPlanetHit(planetHitBonus);
+        BeginImpactCleanup();
+    }
+
+    private void BeginImpactCleanup()
+    {
+        owner?.UnregisterMeteor(this);
+        owner = null;
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = false;
+        }
+
+        if (cachedRigidbody != null)
+        {
+            cachedRigidbody.linearVelocity = Vector2.zero;
+            cachedRigidbody.angularVelocity = 0f;
+            cachedRigidbody.simulated = false;
+        }
+
+        if (cachedSpriteRenderer != null)
+        {
+            cachedSpriteRenderer.enabled = false;
+        }
+
+        float cleanupDelay = postImpactLifetime;
+        if (cachedTrailRenderer != null)
+        {
+            cachedTrailRenderer.emitting = false;
+            cleanupDelay = Mathf.Max(cleanupDelay, cachedTrailRenderer.time);
+        }
+
+        Destroy(gameObject, cleanupDelay);
     }
 }

@@ -3,14 +3,14 @@ using UnityEngine;
 public class GameAudio : MonoBehaviour
 {
     [Header("Audio Sources")]
-    [SerializeField] private AudioSource ambienceSource;
-    [SerializeField] private AudioSource sfxSource;
+    [SerializeField] private AudioSource ambienceSource = null;
+    [SerializeField] private AudioSource sfxSource = null;
 
     [Header("Clips")]
-    [SerializeField] private AudioClip ambienceClip;
-    [SerializeField] private AudioClip movementClip;
-    [SerializeField] private AudioClip meteorPassClip;
-    [SerializeField] private AudioClip impactClip;
+    [SerializeField] private AudioClip ambienceClip = null;
+    [SerializeField] private AudioClip movementClip = null;
+    [SerializeField] private AudioClip meteorPassClip = null;
+    [SerializeField] private AudioClip impactClip = null;
 
     [Header("Tuning")]
     [SerializeField, Min(0.01f)] private float movementInterval = 0.14f;

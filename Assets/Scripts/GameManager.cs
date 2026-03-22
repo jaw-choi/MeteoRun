@@ -1,29 +1,17 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
-using TMPro;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    [Header("UI")]
-    [SerializeField] private TextMeshProUGUI scoreText;
-    [SerializeField] private GameObject gameOverPanel;
-    [SerializeField] private TextMeshProUGUI finalScoreText;
-
-    [Header("Scoring")]
-    [SerializeField, Min(0f)] private float scorePerSecond = 5f;
-    [SerializeField, Min(0)] private int avoidedMeteorBonus = 1;
-
-    [Header("Audio")]
-    [SerializeField] private GameAudio audioManager;
+    [Header("Core References")]
+    [SerializeField] private ScoreManager scoreManager = null;
+    [SerializeField] private UIManager uiManager = null;
+    [SerializeField] private MeteorSpawner meteorSpawner = null;
 
     public bool IsGameOver { get; private set; }
-    public int Score { get; private set; }
-    public GameAudio AudioManager => audioManager;
-
-    private float scoreBuffer;
 
     private void Awake()
     {
@@ -34,65 +22,48 @@ public class GameManager : MonoBehaviour
         }
 
         Instance = this;
-
-        if (audioManager == null)
-        {
-            audioManager = FindObjectOfType<GameAudio>();
-        }
+        AutoAssignReferences();
     }
 
     private void Start()
     {
-        OrbitInput.Reset();
-
-        if (gameOverPanel != null)
+        if (!ValidateReferences())
         {
-            gameOverPanel.SetActive(false);
+            enabled = false;
+            return;
         }
 
-        RefreshScoreUI();
-        audioManager?.PlayAmbience();
+        scoreManager.ScoreChanged += HandleScoreChanged;
+        StartNewRound();
     }
 
     private void Update()
     {
-        if (IsGameOver)
-        {
-            if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
-            {
-                RestartGame();
-            }
-
-            return;
-        }
-
-        scoreBuffer += Time.deltaTime * scorePerSecond;
-        int pointsToAdd = Mathf.FloorToInt(scoreBuffer);
-
-        if (pointsToAdd <= 0)
+        if (!IsGameOver)
         {
             return;
         }
 
-        scoreBuffer -= pointsToAdd;
-        Score += pointsToAdd;
-        RefreshScoreUI();
+        if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
+        {
+            RestartGame();
+        }
     }
 
-    public void RegisterMeteorAvoided(int bonusPoints = -1)
+    private void OnDestroy()
     {
-        if (IsGameOver)
+        if (scoreManager != null)
         {
-            return;
+            scoreManager.ScoreChanged -= HandleScoreChanged;
         }
 
-        int points = bonusPoints >= 0 ? bonusPoints : avoidedMeteorBonus;
-        Score += points;
-        RefreshScoreUI();
-        audioManager?.PlayMeteorPass();
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
-    public void OnPlayerHit()
+    public void HandlePlayerHit()
     {
         if (IsGameOver)
         {
@@ -100,30 +71,78 @@ public class GameManager : MonoBehaviour
         }
 
         IsGameOver = true;
-        audioManager?.PlayImpact();
+        scoreManager.StopScoring();
+        meteorSpawner.StopSpawning();
+        uiManager.ShowGameOver(scoreManager.CurrentScore);
+    }
 
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(true);
-        }
-
-        if (finalScoreText != null)
-        {
-            finalScoreText.text = $"Final Score: {Score}";
-        }
+    public void RegisterMeteorPlanetHit(int bonusScore)
+    {
+        // Score is based only on survival time.
     }
 
     public void RestartGame()
     {
-        Scene currentScene = SceneManager.GetActiveScene();
-        SceneManager.LoadScene(currentScene.buildIndex);
+        meteorSpawner.ClearAllMeteors();
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        SceneManager.LoadScene(activeScene.buildIndex);
     }
 
-    private void RefreshScoreUI()
+    private void AutoAssignReferences()
     {
-        if (scoreText != null)
+        if (scoreManager == null)
         {
-            scoreText.text = $"Score: {Score}";
+            scoreManager = FindFirstObjectByType<ScoreManager>();
         }
+
+        if (uiManager == null)
+        {
+            uiManager = FindFirstObjectByType<UIManager>();
+        }
+
+        if (meteorSpawner == null)
+        {
+            meteorSpawner = FindFirstObjectByType<MeteorSpawner>();
+        }
+    }
+
+    private bool ValidateReferences()
+    {
+        bool isValid = true;
+
+        if (scoreManager == null)
+        {
+            Debug.LogError("GameManager requires a ScoreManager reference.");
+            isValid = false;
+        }
+
+        if (uiManager == null)
+        {
+            Debug.LogError("GameManager requires a UIManager reference.");
+            isValid = false;
+        }
+
+        if (meteorSpawner == null)
+        {
+            Debug.LogError("GameManager requires a MeteorSpawner reference.");
+            isValid = false;
+        }
+
+        return isValid;
+    }
+
+    private void StartNewRound()
+    {
+        IsGameOver = false;
+        scoreManager.ResetScore();
+        uiManager.ShowGameplay(scoreManager.CurrentScore);
+        scoreManager.BeginScoring();
+        meteorSpawner.BeginSpawning();
+    }
+
+    private void HandleScoreChanged(float score)
+    {
+        uiManager.SetScore(score);
     }
 }
