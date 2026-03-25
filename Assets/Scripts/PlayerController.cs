@@ -11,14 +11,35 @@ public class PlayerController : MonoBehaviour
     [SerializeField, Min(1f)] private float angularSpeedDegrees = 180f;
     [SerializeField] private float startAngleDegrees = 90f;
 
+    [Header("Visuals")]
+    [SerializeField] private SpriteRenderer spriteRenderer;
+    [SerializeField] private bool flipXWhenMovingLeft = true;
+    [SerializeField] private Animator animator;
+
+    private MeteorSpawner meteorSpawner;
     private Collider2D cachedCollider;
     private Rigidbody2D cachedRigidbody;
     private float currentAngleDegrees;
+    private bool isRunAnimationPlaying;
 
     private void Awake()
     {
         cachedCollider = GetComponent<Collider2D>();
         cachedRigidbody = GetComponent<Rigidbody2D>();
+
+        if (spriteRenderer == null)
+        {
+            spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        }
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+        }
+
+        meteorSpawner = FindFirstObjectByType<MeteorSpawner>();
+
+        SetRunAnimationPlaying(false);
 
         if (cachedCollider != null)
         {
@@ -53,10 +74,15 @@ public class PlayerController : MonoBehaviour
 
         if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
         {
+            SetRunAnimationPlaying(false);
             return;
         }
 
-        float inputDirection = -Mathf.Clamp(ReadKeyboardInput() + ReadPointerInput(), -1f, 1f);
+        float moveInput = Mathf.Clamp(ReadKeyboardInput() + ReadPointerInput(), -1f, 1f);
+        UpdateFacing(moveInput);
+        SetRunAnimationPlaying(!Mathf.Approximately(moveInput, 0f));
+
+        float inputDirection = -moveInput;
         currentAngleDegrees += inputDirection * angularSpeedDegrees * Time.deltaTime;
         UpdateOrbitPosition();
     }
@@ -68,10 +94,23 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        if (other.GetComponent<Meteor>() != null || other.GetComponentInParent<Meteor>() != null)
+        Meteor meteor = other.GetComponent<Meteor>() ?? other.GetComponentInParent<Meteor>();
+        if (meteor == null)
         {
-            GameManager.Instance?.HandlePlayerHit();
+            return;
         }
+
+        if (meteorSpawner == null)
+        {
+            meteorSpawner = FindFirstObjectByType<MeteorSpawner>();
+        }
+
+        if (meteorSpawner != null && meteorSpawner.IsProfiling)
+        {
+            return;
+        }
+
+        GameManager.Instance?.HandlePlayerHit(meteor.transform.position);
     }
 
     private float ReadKeyboardInput()
@@ -86,12 +125,12 @@ public class PlayerController : MonoBehaviour
 
         if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed)
         {
-            input += 1f;
+            input -= 1f;
         }
 
         if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
         {
-            input -= 1f;
+            input += 1f;
         }
 
         return Mathf.Clamp(input, -1f, 1f);
@@ -143,6 +182,33 @@ public class PlayerController : MonoBehaviour
         }
 
         return leftPressed ? -1f : 1f;
+    }
+
+    private void UpdateFacing(float moveInput)
+    {
+        if (spriteRenderer == null || Mathf.Approximately(moveInput, 0f))
+        {
+            return;
+        }
+
+        bool movingLeft = moveInput < 0f;
+        spriteRenderer.flipX = movingLeft ? flipXWhenMovingLeft : !flipXWhenMovingLeft;
+    }
+
+    private void SetRunAnimationPlaying(bool shouldPlay)
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        if (animator.enabled == shouldPlay && isRunAnimationPlaying == shouldPlay)
+        {
+            return;
+        }
+
+        animator.enabled = shouldPlay;
+        isRunAnimationPlaying = shouldPlay;
     }
 
     private void UpdateOrbitPosition()

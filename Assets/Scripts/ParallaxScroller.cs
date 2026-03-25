@@ -9,6 +9,11 @@ public class ParallaxScroller : MonoBehaviour
 
     private void Update()
     {
+        if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
+        {
+            return;
+        }
+
         if (moveDirection.sqrMagnitude <= 0.0001f)
         {
             return;
@@ -27,3 +32,4 @@ public class ParallaxScroller : MonoBehaviour
         }
     }
 }
+
