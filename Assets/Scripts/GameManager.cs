@@ -1,9 +1,11 @@
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 public class GameManager : MonoBehaviour
 {
+    private const string HapticsEnabledKey = "haptics_enabled";
+
     public static GameManager Instance { get; private set; }
 
     [Header("Core References")]
@@ -11,12 +13,14 @@ public class GameManager : MonoBehaviour
     [SerializeField] private UIManager uiManager = null;
     [SerializeField] private MeteorSpawner meteorSpawner = null;
     [SerializeField] private Camera gameplayCamera = null;
+    [SerializeField] private PlayerController playerController = null;
 
     [Header("Game Over Camera")]
     [SerializeField] private bool enableGameOverZoom = true;
     [SerializeField, Range(0f, 1f)] private float hitFocusStrength = 0.35f;
     [SerializeField, Min(0.1f)] private float zoomMultiplier = 0.85f;
     [SerializeField, Min(0f)] private float zoomDuration = 0.35f;
+    [SerializeField, Min(0f)] private float restartZoomOutDuration = 0.35f;
 
     [Header("Haptics")]
     [SerializeField] private bool enableGameOverHaptics = true;
@@ -30,8 +34,12 @@ public class GameManager : MonoBehaviour
     private float cameraZoomTargetValue;
     private float cameraZoomElapsed;
     private bool isCameraZoomPlaying;
+    private Coroutine restartCoroutine;
 
+    public bool HasGameplayStarted { get; private set; }
     public bool IsGameOver { get; private set; }
+    public bool HapticsEnabled => enableGameOverHaptics;
+    public bool IsRestarting => restartCoroutine != null;
 
     private void Awake()
     {
@@ -43,6 +51,7 @@ public class GameManager : MonoBehaviour
 
         Instance = this;
         AutoAssignReferences();
+        LoadSavedSettings();
     }
 
     private void Start()
@@ -55,7 +64,7 @@ public class GameManager : MonoBehaviour
 
         CacheDefaultCameraState();
         scoreManager.ScoreChanged += HandleScoreChanged;
-        StartNewRound();
+        ShowStartMenu();
     }
 
     private void Update()
@@ -105,18 +114,31 @@ public class GameManager : MonoBehaviour
         // Score is based only on survival time.
     }
 
-    public void RestartGame()
+    public void StartGameFromMenu()
     {
-        ResetCameraInstantly();
-
-        if (meteorSpawner != null)
+        if (HasGameplayStarted)
         {
-            meteorSpawner.StopSpawning();
-            meteorSpawner.ClearAllMeteors();
+            return;
         }
 
-        Scene activeScene = SceneManager.GetActiveScene();
-        SceneManager.LoadScene(activeScene.buildIndex);
+        StartNewRound();
+    }
+
+    public void RestartGame()
+    {
+        if (restartCoroutine != null)
+        {
+            return;
+        }
+
+        restartCoroutine = StartCoroutine(RestartRoutine());
+    }
+
+    public void SetHapticsEnabled(bool isEnabled)
+    {
+        enableGameOverHaptics = isEnabled;
+        PlayerPrefs.SetInt(HapticsEnabledKey, enableGameOverHaptics ? 1 : 0);
+        PlayerPrefs.Save();
     }
 
     private void AutoAssignReferences()
@@ -140,6 +162,16 @@ public class GameManager : MonoBehaviour
         {
             gameplayCamera = Camera.main;
         }
+
+        if (playerController == null)
+        {
+            playerController = FindFirstObjectByType<PlayerController>();
+        }
+    }
+
+    private void LoadSavedSettings()
+    {
+        enableGameOverHaptics = PlayerPrefs.GetInt(HapticsEnabledKey, enableGameOverHaptics ? 1 : 0) == 1;
     }
 
     private bool ValidateReferences()
@@ -170,17 +202,111 @@ public class GameManager : MonoBehaviour
             isValid = false;
         }
 
+        if (playerController == null)
+        {
+            Debug.LogError("GameManager requires a PlayerController reference.");
+            isValid = false;
+        }
+
         return isValid;
+    }
+
+    private void ShowStartMenu()
+    {
+        HasGameplayStarted = false;
+        IsGameOver = false;
+        ResetCameraInstantly();
+
+        if (meteorSpawner != null)
+        {
+            meteorSpawner.StopSpawning();
+            meteorSpawner.ClearAllMeteors();
+        }
+
+        playerController?.ResetToStartPosition();
+        scoreManager.StopScoring();
+        scoreManager.ResetScore();
+        uiManager.ShowStartScreen(scoreManager.CurrentScore);
     }
 
     private void StartNewRound()
     {
+        HasGameplayStarted = true;
         IsGameOver = false;
         ResetCameraInstantly();
+        playerController?.ResetToStartPosition();
+        GameAudio.Instance?.PlayAmbience();
         scoreManager.ResetScore();
         uiManager.ShowGameplay(scoreManager.CurrentScore);
         scoreManager.BeginScoring();
         meteorSpawner.BeginSpawning();
+    }
+
+    private IEnumerator RestartRoutine()
+    {
+        HasGameplayStarted = false;
+        IsGameOver = false;
+        isCameraZoomPlaying = false;
+
+        if (meteorSpawner != null)
+        {
+            meteorSpawner.StopSpawning();
+            meteorSpawner.ClearAllMeteors();
+        }
+
+        scoreManager.StopScoring();
+        scoreManager.ResetScore();
+        uiManager.ShowGameplay(scoreManager.CurrentScore);
+
+        yield return AnimateCameraToDefault(restartZoomOutDuration);
+
+        StartNewRound();
+        restartCoroutine = null;
+    }
+
+    private IEnumerator AnimateCameraToDefault(float duration)
+    {
+        if (gameplayCamera == null)
+        {
+            gameplayCamera = Camera.main;
+        }
+
+        if (gameplayCamera == null)
+        {
+            yield break;
+        }
+
+        if (duration <= 0f)
+        {
+            ResetCameraInstantly();
+            yield break;
+        }
+
+        Vector3 startPosition = gameplayCamera.transform.position;
+        float startValue = gameplayCamera.orthographic ? gameplayCamera.orthographicSize : gameplayCamera.fieldOfView;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float progress = Mathf.Clamp01(elapsed / duration);
+            float easedProgress = Mathf.SmoothStep(0f, 1f, progress);
+
+            gameplayCamera.transform.position = Vector3.Lerp(startPosition, defaultCameraPosition, easedProgress);
+
+            if (gameplayCamera.orthographic)
+            {
+                gameplayCamera.orthographicSize = Mathf.Lerp(startValue, defaultOrthographicSize, easedProgress);
+            }
+            else
+            {
+                gameplayCamera.fieldOfView = Mathf.Lerp(startValue, defaultFieldOfView, easedProgress);
+            }
+
+            yield return null;
+        }
+
+        ResetCameraInstantly();
     }
 
     private void HandleScoreChanged(float score)
@@ -190,12 +316,13 @@ public class GameManager : MonoBehaviour
 
     private void HandlePlayerHit(Vector3 hitWorldPosition, bool hasHitPosition)
     {
-        if (IsGameOver)
+        if (IsGameOver || !HasGameplayStarted)
         {
             return;
         }
 
         IsGameOver = true;
+        GameAudio.Instance?.PlayImpact();
         TriggerGameOverHaptics();
         scoreManager.StopScoring();
         meteorSpawner.StopSpawning();

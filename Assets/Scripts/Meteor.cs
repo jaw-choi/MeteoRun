@@ -20,6 +20,7 @@ public class Meteor : MonoBehaviour
     private float returnToPoolTimer;
     private bool isResolved;
     private bool isWaitingForPoolReturn;
+    private bool hasPlayedPassSound;
 
     public bool IsPooled { get; private set; }
 
@@ -84,6 +85,7 @@ public class Meteor : MonoBehaviour
 
         transform.position += (Vector3)(moveDirection * moveSpeed * Time.deltaTime);
         transform.up = moveDirection;
+        TryPlayPassSoundWhenVisible();
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -132,6 +134,7 @@ public class Meteor : MonoBehaviour
         returnToPoolTimer = 0f;
         isResolved = false;
         isWaitingForPoolReturn = false;
+        hasPlayedPassSound = false;
         IsPooled = false;
 
         if (!gameObject.activeSelf)
@@ -175,6 +178,7 @@ public class Meteor : MonoBehaviour
         planetCenter = null;
         isResolved = false;
         isWaitingForPoolReturn = false;
+        hasPlayedPassSound = false;
         IsPooled = true;
 
         if (cachedCollider != null)
@@ -267,6 +271,23 @@ public class Meteor : MonoBehaviour
         owner?.UnregisterMeteor(this);
         GameManager.Instance?.RegisterMeteorPlanetHit(planetHitBonus);
         BeginImpactCleanup();
+    }
+
+    private void TryPlayPassSoundWhenVisible()
+    {
+        if (hasPlayedPassSound || owner == null)
+        {
+            return;
+        }
+
+        Camera targetCamera = Camera.main;
+        if (targetCamera == null || !IsVisibleInCamera(targetCamera))
+        {
+            return;
+        }
+
+        hasPlayedPassSound = true;
+        GameAudio.Instance?.PlayMeteorPass();
     }
 
     private void BeginImpactCleanup()
