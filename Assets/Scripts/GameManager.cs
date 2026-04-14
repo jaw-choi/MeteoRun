@@ -71,6 +71,7 @@ public class GameManager : MonoBehaviour
         }
 
         IsGameOver = true;
+        Handheld.Vibrate();
         scoreManager.StopScoring();
         meteorSpawner.StopSpawning();
         uiManager.ShowGameOver(scoreManager.CurrentScore);

@@ -45,6 +45,11 @@ public class Meteor : MonoBehaviour
             return;
         }
 
+        if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
+        {
+            return;
+        }
+
         lifeTimer += Time.deltaTime;
         if (lifeTimer >= maxLifetime)
         {
@@ -108,7 +113,7 @@ public class Meteor : MonoBehaviour
 
         isResolved = true;
         GameManager.Instance?.HandlePlayerHit();
-        BeginImpactCleanup();
+        FreezeOnPlayerImpact();
     }
 
     private void ResolvePlanetHit()
@@ -153,5 +158,28 @@ public class Meteor : MonoBehaviour
         }
 
         Destroy(gameObject, cleanupDelay);
+    }
+
+    private void FreezeOnPlayerImpact()
+    {
+        owner?.UnregisterMeteor(this);
+        owner = null;
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = false;
+        }
+
+        if (cachedRigidbody != null)
+        {
+            cachedRigidbody.linearVelocity = Vector2.zero;
+            cachedRigidbody.angularVelocity = 0f;
+            cachedRigidbody.simulated = false;
+        }
+
+        if (cachedTrailRenderer != null)
+        {
+            cachedTrailRenderer.emitting = false;
+        }
     }
 }
