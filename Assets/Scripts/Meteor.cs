@@ -17,7 +17,12 @@ public class Meteor : MonoBehaviour
     private float moveSpeed;
     private int planetHitBonus;
     private float lifeTimer;
+    private float returnToPoolTimer;
     private bool isResolved;
+    private bool isWaitingForPoolReturn;
+    private bool hasPlayedPassSound;
+
+    public bool IsPooled { get; private set; }
 
     private void Awake()
     {
@@ -40,6 +45,22 @@ public class Meteor : MonoBehaviour
 
     private void Update()
     {
+        if (IsPooled)
+        {
+            return;
+        }
+
+        if (isWaitingForPoolReturn)
+        {
+            returnToPoolTimer -= Time.deltaTime;
+            if (returnToPoolTimer <= 0f)
+            {
+                ReturnToPool();
+            }
+
+            return;
+        }
+
         if (isResolved)
         {
             return;
@@ -53,7 +74,7 @@ public class Meteor : MonoBehaviour
         lifeTimer += Time.deltaTime;
         if (lifeTimer >= maxLifetime)
         {
-            Destroy(gameObject);
+            ReturnToPool();
             return;
         }
 
@@ -63,11 +84,8 @@ public class Meteor : MonoBehaviour
         }
 
         transform.position += (Vector3)(moveDirection * moveSpeed * Time.deltaTime);
-
-        if (moveDirection.sqrMagnitude > 0.0001f)
-        {
-            transform.up = moveDirection;
-        }
+        transform.up = moveDirection;
+        TryPlayPassSoundWhenVisible();
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -94,14 +112,129 @@ public class Meteor : MonoBehaviour
         owner?.UnregisterMeteor(this);
     }
 
+    public void PrepareForPool(MeteorSpawner meteorSpawner)
+    {
+        owner = meteorSpawner;
+        DeactivateForPool();
+    }
+
     public void Initialize(Transform targetPlanetCenter, Vector2 direction, float speed, int bonusScore, MeteorSpawner meteorSpawner)
     {
+        owner = meteorSpawner;
         planetCenter = targetPlanetCenter;
         moveDirection = direction.normalized;
+        if (moveDirection.sqrMagnitude < 0.0001f)
+        {
+            moveDirection = Vector2.down;
+        }
+
         moveSpeed = speed;
         planetHitBonus = bonusScore;
-        owner = meteorSpawner;
         lifeTimer = 0f;
+        returnToPoolTimer = 0f;
+        isResolved = false;
+        isWaitingForPoolReturn = false;
+        hasPlayedPassSound = false;
+        IsPooled = false;
+
+        if (!gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = true;
+        }
+
+        if (cachedRigidbody != null)
+        {
+            cachedRigidbody.linearVelocity = Vector2.zero;
+            cachedRigidbody.angularVelocity = 0f;
+            cachedRigidbody.simulated = true;
+        }
+
+        if (cachedSpriteRenderer != null)
+        {
+            cachedSpriteRenderer.enabled = true;
+        }
+
+        if (cachedTrailRenderer != null)
+        {
+            cachedTrailRenderer.Clear();
+            cachedTrailRenderer.emitting = true;
+        }
+
+        transform.up = moveDirection;
+    }
+
+    public void DeactivateForPool()
+    {
+        lifeTimer = 0f;
+        returnToPoolTimer = 0f;
+        moveDirection = Vector2.zero;
+        moveSpeed = 0f;
+        planetHitBonus = 0;
+        planetCenter = null;
+        isResolved = false;
+        isWaitingForPoolReturn = false;
+        hasPlayedPassSound = false;
+        IsPooled = true;
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = false;
+        }
+
+        if (cachedRigidbody != null)
+        {
+            cachedRigidbody.linearVelocity = Vector2.zero;
+            cachedRigidbody.angularVelocity = 0f;
+            cachedRigidbody.simulated = false;
+        }
+
+        if (cachedTrailRenderer != null)
+        {
+            cachedTrailRenderer.emitting = false;
+            cachedTrailRenderer.Clear();
+        }
+
+        if (cachedSpriteRenderer != null)
+        {
+            cachedSpriteRenderer.enabled = true;
+        }
+
+        if (gameObject.activeSelf)
+        {
+            gameObject.SetActive(false);
+        }
+    }
+
+    public bool IsVisibleInCamera(Camera camera)
+    {
+        if (camera == null || IsPooled || !gameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        if (cachedSpriteRenderer == null || !cachedSpriteRenderer.enabled)
+        {
+            return false;
+        }
+
+        Bounds bounds = cachedSpriteRenderer.bounds;
+        Vector3 minViewport = camera.WorldToViewportPoint(bounds.min);
+        Vector3 maxViewport = camera.WorldToViewportPoint(bounds.max);
+
+        if (maxViewport.z < 0f && minViewport.z < 0f)
+        {
+            return false;
+        }
+
+        return maxViewport.x >= 0f
+            && minViewport.x <= 1f
+            && maxViewport.y >= 0f
+            && minViewport.y <= 1f;
     }
 
     private void ResolvePlayerHit()
@@ -112,8 +245,19 @@ public class Meteor : MonoBehaviour
         }
 
         isResolved = true;
-        GameManager.Instance?.HandlePlayerHit();
-        FreezeOnPlayerImpact();
+        owner?.UnregisterMeteor(this);
+
+        if (owner != null && owner.IsProfiling)
+        {
+            owner.RecordProfilingEvent(
+                "PLAYER_HIT_IGNORED",
+                $"position=({transform.position.x:F2};{transform.position.y:F2})");
+            BeginImpactCleanup();
+            return;
+        }
+
+        GameManager.Instance?.HandlePlayerHit(transform.position);
+        FreezeAfterPlayerHit();
     }
 
     private void ResolvePlanetHit()
@@ -124,15 +268,30 @@ public class Meteor : MonoBehaviour
         }
 
         isResolved = true;
+        owner?.UnregisterMeteor(this);
         GameManager.Instance?.RegisterMeteorPlanetHit(planetHitBonus);
         BeginImpactCleanup();
     }
 
+    private void TryPlayPassSoundWhenVisible()
+    {
+        if (hasPlayedPassSound || owner == null)
+        {
+            return;
+        }
+
+        Camera targetCamera = Camera.main;
+        if (targetCamera == null || !IsVisibleInCamera(targetCamera))
+        {
+            return;
+        }
+
+        hasPlayedPassSound = true;
+        GameAudio.Instance?.PlayMeteorPass();
+    }
+
     private void BeginImpactCleanup()
     {
-        owner?.UnregisterMeteor(this);
-        owner = null;
-
         if (cachedCollider != null)
         {
             cachedCollider.enabled = false;
@@ -157,14 +316,12 @@ public class Meteor : MonoBehaviour
             cleanupDelay = Mathf.Max(cleanupDelay, cachedTrailRenderer.time);
         }
 
-        Destroy(gameObject, cleanupDelay);
+        isWaitingForPoolReturn = true;
+        returnToPoolTimer = cleanupDelay;
     }
 
-    private void FreezeOnPlayerImpact()
+    private void FreezeAfterPlayerHit()
     {
-        owner?.UnregisterMeteor(this);
-        owner = null;
-
         if (cachedCollider != null)
         {
             cachedCollider.enabled = false;
@@ -181,5 +338,20 @@ public class Meteor : MonoBehaviour
         {
             cachedTrailRenderer.emitting = false;
         }
+
+        isWaitingForPoolReturn = false;
+        returnToPoolTimer = 0f;
+    }
+
+    private void ReturnToPool()
+    {
+        if (owner == null)
+        {
+            DeactivateForPool();
+            return;
+        }
+
+        owner.ReturnMeteorToPool(this);
     }
 }
+

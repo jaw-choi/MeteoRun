@@ -1,65 +1,98 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class GameAudio : MonoBehaviour
 {
+    private const string BgmVolumeKey = "bgm_volume";
+    private const string SfxVolumeKey = "sfx_volume";
+
+    public static GameAudio Instance { get; private set; }
+
     [Header("Audio Sources")]
     [SerializeField] private AudioSource ambienceSource = null;
     [SerializeField] private AudioSource sfxSource = null;
 
     [Header("Clips")]
     [SerializeField] private AudioClip ambienceClip = null;
-    [SerializeField] private AudioClip movementClip = null;
     [SerializeField] private AudioClip meteorPassClip = null;
     [SerializeField] private AudioClip impactClip = null;
 
-    [Header("Tuning")]
-    [SerializeField, Min(0.01f)] private float movementInterval = 0.14f;
+    [Header("Clip Volumes")]
+    [SerializeField, Range(0f, 1f)] private float ambienceVolume = 0.35f;
+    [SerializeField, Range(0f, 1f)] private float meteorPassVolume = 0.55f;
+    [SerializeField, Range(0f, 1f)] private float impactVolume = 1f;
 
-    private float movementTimer;
+    [Header("Master Volumes")]
+    [SerializeField, Range(0f, 1f)] private float bgmMasterVolume = 1f;
+    [SerializeField, Range(0f, 1f)] private float sfxMasterVolume = 1f;
+
+    public float BgmVolume => bgmMasterVolume;
+    public float SfxVolume => sfxMasterVolume;
 
     private void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
+        LoadSavedSettings();
         EnsureAudioSources();
+        ApplyAmbienceVolume();
+    }
+
+    private void Start()
+    {
+        PlayAmbience();
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     public void PlayAmbience()
     {
-        if (ambienceSource == null || ambienceClip == null || ambienceSource.isPlaying)
+        if (ambienceSource == null || ambienceClip == null)
         {
             return;
         }
 
         ambienceSource.clip = ambienceClip;
         ambienceSource.loop = true;
-        ambienceSource.Play();
-    }
+        ApplyAmbienceVolume();
 
-    public void TickMovement(bool isMoving)
-    {
-        if (!isMoving)
+        if (!ambienceSource.isPlaying)
         {
-            movementTimer = 0f;
-            return;
+            ambienceSource.Play();
         }
-
-        movementTimer -= Time.deltaTime;
-        if (movementTimer > 0f)
-        {
-            return;
-        }
-
-        PlayOneShot(movementClip, 0.4f);
-        movementTimer = movementInterval;
     }
 
     public void PlayMeteorPass()
     {
-        PlayOneShot(meteorPassClip, 0.55f);
+        PlayOneShot(meteorPassClip, meteorPassVolume);
     }
 
     public void PlayImpact()
     {
-        PlayOneShot(impactClip, 1f);
+        PlayOneShot(impactClip, impactVolume);
+    }
+
+    public void SetBgmVolume(float volume)
+    {
+        bgmMasterVolume = Mathf.Clamp01(volume);
+        ApplyAmbienceVolume();
+        SaveFloat(BgmVolumeKey, bgmMasterVolume);
+    }
+
+    public void SetSfxVolume(float volume)
+    {
+        sfxMasterVolume = Mathf.Clamp01(volume);
+        SaveFloat(SfxVolumeKey, sfxMasterVolume);
     }
 
     private void EnsureAudioSources()
@@ -69,7 +102,7 @@ public class GameAudio : MonoBehaviour
             ambienceSource = gameObject.AddComponent<AudioSource>();
             ambienceSource.playOnAwake = false;
             ambienceSource.spatialBlend = 0f;
-            ambienceSource.volume = 0.35f;
+            ambienceSource.volume = 1f;
         }
 
         if (sfxSource == null)
@@ -77,8 +110,22 @@ public class GameAudio : MonoBehaviour
             sfxSource = gameObject.AddComponent<AudioSource>();
             sfxSource.playOnAwake = false;
             sfxSource.spatialBlend = 0f;
-            sfxSource.volume = 0.8f;
+            sfxSource.volume = 1f;
         }
+    }
+
+    private void ApplyAmbienceVolume()
+    {
+        if (ambienceSource != null)
+        {
+            ambienceSource.volume = ambienceVolume * bgmMasterVolume;
+        }
+    }
+
+    private void LoadSavedSettings()
+    {
+        bgmMasterVolume = PlayerPrefs.GetFloat(BgmVolumeKey, bgmMasterVolume);
+        sfxMasterVolume = PlayerPrefs.GetFloat(SfxVolumeKey, sfxMasterVolume);
     }
 
     private void PlayOneShot(AudioClip clip, float volumeScale)
@@ -88,6 +135,12 @@ public class GameAudio : MonoBehaviour
             return;
         }
 
-        sfxSource.PlayOneShot(clip, volumeScale);
+        sfxSource.PlayOneShot(clip, volumeScale * sfxMasterVolume);
+    }
+
+    private static void SaveFloat(string key, float value)
+    {
+        PlayerPrefs.SetFloat(key, value);
+        PlayerPrefs.Save();
     }
 }
