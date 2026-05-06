@@ -338,6 +338,11 @@ public class GameManager : MonoBehaviour
         }
 
         uiManager.ShowGameOver(scoreManager.CurrentScore);
+
+        if (AdMobManager.Instance != null)
+        {
+            AdMobManager.Instance.OnGameFinished();
+        }
     }
 
     private void CacheDefaultCameraState()
