@@ -99,9 +99,9 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    public void HandlePlayerHit()
+    public void HandlePlayerHit(Vector3 hitWorldPosition)
     {
-        HandlePlayerHit(Vector3.zero, false);
+        HandlePlayerHit(hitWorldPosition, true);
 
         IsGameOver = true;
         Handheld.Vibrate();
