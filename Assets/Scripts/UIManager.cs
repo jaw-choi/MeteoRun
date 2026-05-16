@@ -14,6 +14,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject gameOverPanel = null;
     [SerializeField] private TextMeshProUGUI finalScoreText = null;
     [SerializeField] private TextMeshProUGUI bestRecordText = null;
+    [SerializeField] private GameObject easterEggText = null;
     [SerializeField] private Button restartButton = null;
     [SerializeField] private Button gameOverSettingsButton = null;
 
@@ -153,6 +154,7 @@ public class UIManager : MonoBehaviour
 
         if (gameOverPanel != null)
         {
+            easterEggText.SetActive(false);
             gameOverPanel.SetActive(false);
         }
 
@@ -186,7 +188,8 @@ public class UIManager : MonoBehaviour
             finalScoreText.text = $"{finalScore:F2}";
         }
 
-        SetSettingsButtonsVisible(false, true);
+        bool showPrimarySettingsButton = settingsButton != null;
+        SetSettingsButtonsVisible(showPrimarySettingsButton, !showPrimarySettingsButton);
         UpdateBestRecord(finalScore);
     }
 

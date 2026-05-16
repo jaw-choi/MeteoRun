@@ -1,0 +1,48 @@
+메테오런 바로 꺼짐 이슈 - 발생 버그 해결중
+1.xml 문제 고쳐도 여전히 꺼짐
+2. 블로그 - https://sungmin08.tistory.com/35 
+참고해서 해보겠음, Activity , Unity 6 버전 이슈 - 그래도 안됨
+3.
+inspector에서는 ~ 있는 app ID
+Code 에서는 / 있는 유닛 ID 형식 써야함
+이건 correct 인 상태
+4.내가 만든 메인 AndroidManifest.xml 문제가 아니라, AdMob 플러그인 내부용 Manifest가 없다는 뜻입니다. 
+역시 xml 문제
+C:\MeteoRun\Assets\Plugins\Android\
+여기에 xml 만들어서 넣었는데
+C:\MeteoRun\Assets\Plugins\Android\GoogleMobileAdsPlugin.androidlib
+여기에 넣어야함
+
+내용
+
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.google.unity.ads">
+
+    <application />
+
+</manifest>
+
+만들고 - asset - refresh - force resolve - build
+
+오류는 고쳤는데 여전히 바로 꺼짐
+5.  고침, 위 활동 하고 cache 삭제하고 다시 구워야 했을듯
+Library/bee (cache)삭제 후 다시 build 함
+최종 xml 위치는 4번 위치이고 최종 내용은
+
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+  <application>
+    <activity android:name="com.unity3d.player.UnityPlayerActivity" android:theme="@style/UnityThemeSelector" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+      <meta-data android:name="unityplayer.UnityActivity" android:value="true" />
+    </activity>
+    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-8502618733998421~8645878092" />
+    <meta-data android:name="com.google.unity.ads.UNITY_VERSION" android:value="6000.3.10f1" />
+  </application>
+</manifest>
